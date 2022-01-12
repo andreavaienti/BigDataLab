@@ -145,13 +145,13 @@ object Exercise extends App {
 
       val rddMaxTemp = rddJoin
         .map({case (key, ((name, country), temp)) => ((name, country), temp)})
-        .reduceByKey((temp1,temp2)=>{if(temp1<temp2) temp2 else temp1}).collect()
-        //.cache()
-      //oppure
-      //rddJoin.map({case (key, ((name, country), temp)) => (name, temp)}).reduceByKey((tempX,tempY)=>{if(tempX<tempY) tempY else tempX}).collect()
-      rddJoin.filter({case (x, y) => y._1._2 == "UK"}).map({case (x, y) => (y._1._1, y._2)}).reduceByKey((x,y)=>{if(x<y) y else x}).collect()
-      //oppure
-      //rddJoin.filter({case (_, ((_, country), _)) => country == "UK"}).map({case (_, ((name, _), temp)) => (name, temp)}).reduceByKey((x,y)=>{if(x<y) y else x}).collect()
+        .reduceByKey((temp1,temp2)=>{if(temp1<temp2) temp2 else temp1})
+        .cache()
+
+      //rddMaxTempCity
+      rddMaxTemp.collect()
+      //rddMaxTempCityUk
+      rddMaxTemp.filter({case ((_, country), _) => country == "UK"}).collect()
 
   }
 
