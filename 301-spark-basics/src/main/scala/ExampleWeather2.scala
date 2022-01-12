@@ -14,7 +14,7 @@ object ExampleWeather2 extends App {
 
   override def main(args: Array[String]): Unit = {
 
-    val username = "egallinucci"
+    val username = "avaienti"
 
     val spark = SparkSession.builder.appName("ExampleWeather Spark 2.1").getOrCreate()
 

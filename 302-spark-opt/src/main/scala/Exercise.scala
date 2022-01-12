@@ -55,20 +55,13 @@ object Exercise extends App {
   def exercise1(sc: SparkContext): Unit = {
     val rddWeather = sc.textFile("hdfs:/bigdata/dataset/weather-sample").map(WeatherData.extract)
 
-    // Average temperature for every month
-    rddWeather
-      .filter(_.temperature<999)
-      .map(x => (x.month, x.temperature))
-      .aggregateByKey((0.0,0.0))((a,v)=>(a._1+v,a._2+1),(a1,a2)=>(a1._1+a2._1,a1._2+a2._2))
-      .map({case(k,v)=>(k,v._1/v._2)})
-      .collect()
+    val cachedRdd = rddWeather.filter(_.temperature<999).repartition(8).map(x => (x.month, x.temperature)).cache()
 
+    // Average temperature for every month
+    cachedRdd.aggregateByKey((0.0,0.0))((a,v)=>(a._1+v,a._2+1), (a1,a2)=>(a1._1+a2._1,a1._2+a2._2)).map({case(k,v)=>(k,v._1/v._2)}).collect()
     // Maximum temperature for every month
-    rddWeather
-      .filter(_.temperature<999)
-      .map(x => (x.month, x.temperature))
-      .reduceByKey((x,y)=>{if(x<y) y else x})
-      .collect()
+    cachedRdd.reduceByKey((x,y)=>{if(x<y) y else x}).collect()
+
   }
 
   /**
@@ -81,27 +74,34 @@ object Exercise extends App {
 
     val rddStation = sc.textFile("hdfs:/bigdata/dataset/weather-info/stations.csv").map(StationData.extract)
 
-    val rddS1 = rddStation
+    /* Spiegazione delle varie istruzioni
+
+      keyBy(x => x.usaf + x.wban) //Mantiente tutti i campi presenti nell'RDD aggiungendo la chiave secondo la funzione specifica
+      .partitionBy(p) //Imposta il criterio di partizionamento (è come la repartition ma con un criterio di partizionamento)
+      .cache() //Per salvare in memoria l'RDD nel caso in cui abbia bisogno di riutilizzarlo
+
+     */
+    val rddS1 = rddStation //No, perché non ha senso fare la cache quando devo fare ancora una computazione... È inutile fare la cache prima di aver finito le trasformazioni che devo fare
       .keyBy(x => x.usaf + x.wban)
       .partitionBy(p)
       .cache()
       .map({case (k,v) => (k,(v.country,v.elevation))})
-    val rddS2 = rddStation
+    val rddS2 = rddStation //No, perché memorizzerei l'RDD che non è stato ancora partizionato (meglio fare la cache dopo aver partizionato l'RDD)
       .keyBy(x => x.usaf + x.wban)
       .map({case (k,v) => (k,(v.country,v.elevation))})
       .cache()
       .partitionBy(p)
-    val rddS3 = rddStation
+    val rddS3 = rddStation //No, perché fare la map dopo il partizionamento va a rompere il criterio di partizionamento... Se facessi una MapValue invece andrebbe bene, perché lavorerei solo sul valore, non modificando le chiavi e quindi il criterio di partizionamento
       .keyBy(x => x.usaf + x.wban)
       .partitionBy(p)
       .map({case (k,v) => (k,(v.country,v.elevation))})
       .cache()
-    val rddS4 = rddStation
+    val rddS4 = rddStation //Va bene
       .keyBy(x => x.usaf + x.wban)
       .map({case (k,v) => (k,(v.country,v.elevation))})
       .partitionBy(p)
       .cache()
-    val rddS5 = rddStation
+    val rddS5 = rddStation //Va bene
       .map(x => (x.usaf + x.wban, (x.country,x.elevation)))
       .partitionBy(p)
       .cache()
@@ -128,10 +128,31 @@ object Exercise extends App {
    * @param sc
    */
   def exercise3(sc: SparkContext): Unit = {
-    val rddWeather = sc.textFile("hdfs:/bigdata/dataset/weather-sample").map(WeatherData.extract)
-    val rddStation = sc.textFile("hdfs:/bigdata/dataset/weather-info/stations.csv").map(StationData.extract)
+      import org.apache.spark.HashPartitioner
+      val p = new HashPartitioner(8)
 
-    // TODO exercise
+      val rddWeather = sc.textFile("hdfs:/bigdata/dataset/weather-sample").map(WeatherData.extract)
+      val rddStation = sc.textFile("hdfs:/bigdata/dataset/weather-info/stations.csv").map(StationData.extract)
+
+      val rddWeatherCached = rddWeather.filter(_.temperature<999).map(x => (x.usaf + x.wban, (x.temperature))).partitionBy(p).cache()
+
+      val rddJoin = rddStation
+      .map(x => (x.usaf + x.wban, (x.name,x.country)))
+      .partitionBy(p)
+      //.join(rddWeatherCached)
+      .join(rddWeather.filter(_.temperature<999).map(x => (x.usaf + x.wban, (x.temperature))).partitionBy(p))
+      .cache()
+
+      val rddMaxTemp = rddJoin
+        .map({case (key, ((name, country), temp)) => ((name, country), temp)})
+        .reduceByKey((temp1,temp2)=>{if(temp1<temp2) temp2 else temp1}).collect()
+        //.cache()
+      //oppure
+      //rddJoin.map({case (key, ((name, country), temp)) => (name, temp)}).reduceByKey((tempX,tempY)=>{if(tempX<tempY) tempY else tempX}).collect()
+      rddJoin.filter({case (x, y) => y._1._2 == "UK"}).map({case (x, y) => (y._1._1, y._2)}).reduceByKey((x,y)=>{if(x<y) y else x}).collect()
+      //oppure
+      //rddJoin.filter({case (_, ((_, country), _)) => country == "UK"}).map({case (_, ((name, _), temp)) => (name, temp)}).reduceByKey((x,y)=>{if(x<y) y else x}).collect()
+
   }
 
   /**

@@ -27,4 +27,3 @@ case class StationData(
   date_begin:String,
   date_end:String
 )
-
